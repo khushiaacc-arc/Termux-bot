@@ -15,10 +15,19 @@ from telebot import types
 
 # ===================== CONFIGURATION =====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MAIN_ADMIN_ID = int(os.environ.get("MAIN_ADMIN_ID"))  # Main admin who can add/remove other admins
-BASE_DIR = os.getcwd()
+MAIN_ADMIN_ID = int(os.environ.get("MAIN_ADMIN_ID"))
+
+# Render.com automatically provides PORT in environment
+# Use 9090 if PORT is not set (for local development)
 PORT = int(os.environ.get("PORT", 9090))
+BASE_DIR = os.getcwd()
 DATA_FILE = "bot_data.json"
+
+# Debug info
+print(f"🔧 Configuration loaded:")
+print(f"   PORT: {PORT}")
+print(f"   BOT_TOKEN present: {'Yes' if BOT_TOKEN else 'No'}")
+print(f"   MAIN_ADMIN_ID: {MAIN_ADMIN_ID}")
 
 # ===================== INITIALIZE BOT =====================
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -862,28 +871,52 @@ def home():
 </body>
 </html>
 """
-
+    
 # ================= START SERVER =================
 if __name__ == "__main__":
     print("🤖 Starting Termux Controller Pro...")
     print(f"👑 Main Admin: {MAIN_ADMIN_ID}")
     print(f"📁 Base Directory: {BASE_DIR}")
     print(f"🌐 Web Interface: http://0.0.0.0:{PORT}")
+    print(f"🔧 Using PORT from environment: {PORT}")
+    
+    # Check for required environment variables
+    if not BOT_TOKEN:
+        print("❌ ERROR: BOT_TOKEN environment variable not set!")
+        exit(1)
+    
+    if not MAIN_ADMIN_ID:
+        print("❌ ERROR: MAIN_ADMIN_ID environment variable not set!")
+        exit(1)
     
     # Start Flask server safely
     def run_flask():
         try:
-            app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+            print(f"🚀 Starting Flask server on port {PORT}...")
+            app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
         except Exception as e:
             print(f"⚠️ Flask server error: {e}")
     
-    threading.Thread(target=run_flask, daemon=True).start()
+    # Start bot in a separate thread
+    def run_bot():
+        print("🤖 Starting Telegram bot...")
+        while True:
+            try:
+                bot.infinity_polling(timeout=60, long_polling_timeout=60)
+            except Exception as e:
+                print(f"⚠️ Bot error: {e}. Retrying in 5 seconds...")
+                time.sleep(5)
     
-    # Start bot with retry
-    while True:
-        try:
-            print("🤖 Bot polling started...")
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
-        except Exception as e:
-            print(f"⚠️ Bot error: {e}. Retrying in 5 seconds...")
-            time.sleep(5)
+    # Start both services
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    
+    flask_thread.start()
+    bot_thread.start()
+    
+    # Keep main thread alive
+    try:
+        flask_thread.join()
+        bot_thread.join()
+    except KeyboardInterrupt:
+        print("\n👋 Shutting down...")
